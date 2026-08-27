@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import plotly.express as px
 import requests
 
-# Page layout configuration
 st.set_page_config(layout="wide")
 st.title("Institutional Accumulation Tracker")
 
@@ -21,7 +20,6 @@ if st.button("Analyze Stock"):
     if not ticker_input:
         st.warning("Please enter a ticker symbol.")
     else:
-        # Bypassing cloud rate limits
         session = requests.Session()
         session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
         
@@ -34,15 +32,15 @@ if st.button("Analyze Stock"):
                 if isinstance(df.columns, pd.MultiIndex):
                     df.columns = df.columns.get_level_values(0)
 
-                # Calculate Accumulation Metrics
+                df['Date_Str'] = df.index.strftime('%Y-%m-%d')
                 df['Price_Diff'] = df['Close'].diff()
                 df['OBV_Direction'] = np.where(df['Price_Diff'] > 0, 1, np.where(df['Price_Diff'] < 0, -1, 0))
                 df['OBV'] = (df['Volume'] * df['OBV_Direction']).fillna(0).cumsum()
 
                 # --- 2-COLUMN LAYOUT ---
-                main_col, side_col = st.columns([2.2, 1], gap="medium")
+                main_col, side_col = st.columns([2.2, 1.2], gap="medium")
 
-                # Left Column: Main Price vs. OBV Graph
+                # Left Column: Main Price vs OBV Graph
                 with main_col:
                     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 7), sharex=True)
                     
@@ -59,58 +57,43 @@ if st.button("Analyze Stock"):
 
                     st.pyplot(fig)
 
-                # Right Column: Side-by-Side Volume Comparison Widget
+                # Right Column: Highest Volume Leaderboard (Horizontal Bars)
                 with side_col:
-                    st.markdown("### Date Volume Comparison")
-                    st.caption("Select two dates from the chart to compare institutional volume absorption.")
+                    st.markdown("### Top Volume Days Leaderboard")
+                    st.caption(f"Ranked highest to lowest volume across the selected timeframe ({period}).")
 
-                    # Default to recent trading dates
-                    available_dates = df.index.date
-                    default_date_b = available_dates[-1]
-                    default_date_a = available_dates[-6] if len(available_dates) >= 6 else available_dates[0]
+                    # Filter top 15 highest volume days to keep display clean
+                    top_vol_df = df.sort_values(by='Volume', ascending=True).tail(15).copy()
+                    
+                    # Create combined label with Date and Price
+                    top_vol_df['Label'] = top_vol_df.apply(
+                        lambda row: f"{row['Date_Str']}  (${row['Close']:.2f})", axis=1
+                    )
 
-                    date_a = st.date_input("Date A", value=default_date_a, min_value=available_dates[0], max_value=available_dates[-1])
-                    date_b = st.date_input("Date B", value=default_date_b, min_value=available_dates[0], max_value=available_dates[-1])
+                    # Up vs Down day coloring
+                    top_vol_df['Color'] = np.where(top_vol_df['Price_Diff'] >= 0, 'Up Day', 'Down Day')
 
-                    # Filter for target dates
-                    df_filtered = df[df.index.date.isin([date_a, date_b])].copy()
-
-                    if not df_filtered.empty:
-                        df_filtered['Date_Str'] = df_filtered.index.strftime('%Y-%m-%d')
-                        df_filtered['Label'] = df_filtered.apply(
-                            lambda row: f"{row['Date_Str']}<br><b>${row['Close']:.2f}</b>", axis=1
-                        )
-
-                        # Render Volume Bar Chart
-                        fig_vol = px.bar(
-                            df_filtered,
-                            x='Label',
-                            y='Volume',
-                            text_auto='.2s',
-                            color='Label',
-                            color_discrete_sequence=['#1f77b4', '#2ca02c']
-                        )
-                        
-                        fig_vol.update_layout(
-                            showlegend=False,
-                            height=350,
-                            xaxis_title=None,
-                            yaxis_title="Volume",
-                            margin=dict(l=10, r=10, t=20, b=10)
-                        )
-                        st.plotly_chart(fig_vol, use_container_width=True)
-
-                        # Context summary metrics
-                        if len(df_filtered) == 2:
-                            vol_diff = df_filtered['Volume'].iloc[-1] - df_filtered['Volume'].iloc[0]
-                            pct_change = (vol_diff / df_filtered['Volume'].iloc[0]) * 100
-                            st.metric(
-                                label=f"Volume Shift ({df_filtered['Date_Str'].iloc[-1]} vs {df_filtered['Date_Str'].iloc[0]})",
-                                value=f"{df_filtered['Volume'].iloc[-1]:,.0f}",
-                                delta=f"{pct_change:+.1f}% Volume Change"
-                            )
-                    else:
-                        st.warning("Selected dates fall on non-trading days (weekends/holidays). Choose valid market dates.")
+                    # Horizontal Bar Chart
+                    fig_vol = px.bar(
+                        top_vol_df,
+                        x='Volume',
+                        y='Label',
+                        orientation='h',
+                        text_auto='.2s',
+                        color='Color',
+                        color_discrete_map={'Up Day': '#2ca02c', 'Down Day': '#d62728'}
+                    )
+                    
+                    fig_vol.update_layout(
+                        showlegend=True,
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                        height=550,
+                        xaxis_title="Volume",
+                        yaxis_title=None,
+                        margin=dict(l=10, r=10, t=30, b=10)
+                    )
+                    
+                    st.plotly_chart(fig_vol, use_container_width=True)
 
             else:
                 st.error(f"No data returned for '{ticker_input}'.")
